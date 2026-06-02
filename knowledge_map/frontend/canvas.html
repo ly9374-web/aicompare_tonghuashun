@@ -1,0 +1,61 @@
+<div id="app-shell">
+  <div class="canvas-topbar">
+    <div class="title-group">
+      <strong id="map-title"></strong>
+      <span id="node-count"></span>
+    </div>
+    <div class="toolbar-hint">双击编辑，选中文字可红/绿高亮，Tab 子节点，Enter 同级，Space 确认</div>
+    <div id="save-state">已保存</div>
+  </div>
+
+  <div id="viewport">
+    <div id="canvas-world">
+      <div id="canvas-content">
+        <svg id="edges-layer"></svg>
+        <div id="nodes-layer"></div>
+        <svg id="annotation-layer"></svg>
+      </div>
+    </div>
+  </div>
+
+  <div class="side-toolbar" aria-label="画布工具栏">
+    <button id="upload-image-button" type="button">
+      <span class="tool-icon">IMG</span>
+      <span>上传图片</span>
+    </button>
+    <input id="image-upload-input" type="file" accept="image/*" multiple />
+    <button id="red-highlighter-button" type="button">
+      <span class="tool-icon red-tool">RED</span>
+      <span>红色高亮</span>
+    </button>
+    <button id="green-highlighter-button" type="button">
+      <span class="tool-icon green-tool">GRN</span>
+      <span>绿色高亮</span>
+    </button>
+    <input id="brush-size-input" type="hidden" value="16" />
+    <button id="eraser-button" type="button">
+      <span class="tool-icon erase-tool">ERS</span>
+      <span>去除高亮</span>
+    </button>
+    <button id="compare-button" type="button">
+      <span class="tool-icon compare-tool">CMP</span>
+      <span>对比</span>
+    </button>
+    <button id="auto-layout-button" type="button">
+      <span class="tool-icon">LAY</span>
+      <span>自动整理</span>
+    </button>
+  </div>
+
+  <div id="context-menu" role="menu">
+    <button id="context-menu-action" type="button">添加王冠</button>
+  </div>
+</div>
+
+<style>
+__CANVAS_CSS__
+</style>
+
+<script>
+__CANVAS_JS__
+</script>

@@ -1,0 +1,52 @@
+{
+  "maps": [
+    {
+      "id": "65dfe5fc-ccae-4242-85c0-a59cfed00def",
+      "title": "知识导图 1",
+      "created_at": "2026-06-02T14:02:42.003090+00:00",
+      "updated_at": "2026-06-02T14:03:05.927182+00:00",
+      "nodes": [
+        {
+          "id": "de6677b0-c224-41e7-8970-337ca5c8c2ad",
+          "text": "jin r",
+          "x": 218,
+          "y": 310,
+          "width": 120,
+          "height": 41,
+          "parent_id": null,
+          "children": [],
+          "level": 0,
+          "manual": true,
+          "images": [],
+          "crown": false,
+          "compare_group_id": null,
+          "compare_index": null,
+          "text_html": "jin r",
+          "compare_main_html": "",
+          "compare_sub_html": ""
+        },
+        {
+          "id": "f8087402-7040-4e1b-96ec-fd90c865cb53",
+          "text": "新主题",
+          "x": 399,
+          "y": 272,
+          "width": 120,
+          "height": 41,
+          "parent_id": null,
+          "children": [],
+          "level": 0,
+          "manual": true,
+          "images": [],
+          "crown": false,
+          "compare_group_id": null,
+          "compare_index": null,
+          "text_html": "新主题",
+          "compare_main_html": "",
+          "compare_sub_html": ""
+        }
+      ],
+      "edges": [],
+      "annotations": []
+    }
+  ]
+}
