@@ -98,7 +98,7 @@ body {
   position: relative;
   flex: 1;
   overflow: auto;
-  cursor: grab;
+  cursor: default;
   background-color: #f8fbff;
   background-image:
     radial-gradient(circle, rgba(100, 116, 139, 0.24) 1px, transparent 1px),
@@ -177,6 +177,7 @@ body {
 #red-highlighter-button,
 #green-highlighter-button,
 #eraser-button,
+#comment-button,
 #compare-button {
   min-height: 58px;
   padding: 8px 6px;
@@ -200,6 +201,7 @@ body {
 #red-highlighter-button:hover,
 #green-highlighter-button:hover,
 #eraser-button:hover,
+#comment-button:hover,
 #compare-button:hover,
 #red-highlighter-button.active,
 #green-highlighter-button.active,
@@ -234,6 +236,10 @@ body {
 
 .erase-tool {
   background: linear-gradient(135deg, #64748b, #334155);
+}
+
+.comment-tool {
+  background: linear-gradient(135deg, #0f172a, #7c3aed);
 }
 
 .compare-tool {
@@ -372,7 +378,7 @@ body {
 }
 
 .compare-main-editor {
-  text-align: right;
+  text-align: left;
 }
 
 .compare-sub-editor {
@@ -400,7 +406,7 @@ body {
 }
 
 .compare-main-editor:empty::before {
-  content: "右对齐输入";
+  content: "左对齐输入";
 }
 
 .compare-sub-editor:empty::before {
@@ -411,6 +417,30 @@ body {
 .node-text span[style*="background"] {
   border-radius: 4px;
   padding: 0 2px;
+}
+
+.node-text span[data-comment="true"] {
+  font-weight: 700;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.collapsed-badge {
+  align-self: center;
+  min-height: 26px;
+  padding: 4px 10px;
+  border: 1px solid rgba(37, 99, 235, 0.22);
+  border-radius: 999px;
+  background: rgba(239, 246, 255, 0.88);
+  color: #1d4ed8;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.collapsed-badge:hover {
+  background: rgba(219, 234, 254, 0.96);
+  border-color: rgba(37, 99, 235, 0.38);
 }
 
 .node-images {
@@ -538,6 +568,15 @@ body {
 
 #context-menu button:hover {
   background: rgba(239, 246, 255, 0.95);
+}
+
+#context-menu button:disabled {
+  color: #94a3b8;
+  cursor: not-allowed;
+}
+
+#context-menu button:disabled:hover {
+  background: transparent;
 }
 
 #measure-node {

@@ -16,9 +16,11 @@
       const greenHighlighterButton = document.getElementById("green-highlighter-button");
       const brushSizeInput = document.getElementById("brush-size-input");
       const eraserButton = document.getElementById("eraser-button");
+      const commentButton = document.getElementById("comment-button");
       const compareButton = document.getElementById("compare-button");
       const contextMenu = document.getElementById("context-menu");
       const contextMenuAction = document.getElementById("context-menu-action");
+      const contextMenuCollapseAction = document.getElementById("context-menu-collapse-action");
 
       const MIN_NODE_WIDTH = 120;
       const MAX_NODE_WIDTH = 360;
@@ -31,6 +33,8 @@
       const MAX_SCALE = 2.4;
       const COMPARE_GAP = 10;
       const MAX_UNDO_STEPS = 80;
+      const WORLD_ORIGIN = 50000;
+      const MIN_WORLD_SIZE = WORLD_ORIGIN * 2;
       const RED_TEXT_HIGHLIGHT = "rgba(248, 113, 113, 0.42)";
       const GREEN_TEXT_HIGHLIGHT = "rgba(74, 222, 128, 0.42)";
 
@@ -57,6 +61,7 @@
       let undoStack = [];
       let isRestoring = false;
       let editSnapshotTaken = false;
+      let didCenterCanvas = false;
 
       titleEl.textContent = mapData.title || "未命名知识导图";
       canvasScale = Math.min(MAX_SCALE, Math.max(MIN_SCALE, canvasScale || 1));
@@ -108,10 +113,22 @@
           let output = outputParent;
           if (tag === "span" || tag === "font") {
             const background = input.style.backgroundColor || input.getAttribute("data-highlight-color") || "";
-            if (background) {
+            const isComment = input.getAttribute("data-comment") === "true" ||
+              input.style.fontWeight === "bold" ||
+              input.style.fontWeight === "700" ||
+              input.style.textDecorationLine.includes("underline") ||
+              input.style.textDecoration.includes("underline");
+            if (background || isComment) {
               const span = document.createElement("span");
-              span.style.backgroundColor = background;
-              span.setAttribute("data-highlight", "true");
+              if (background) {
+                span.style.backgroundColor = background;
+                span.setAttribute("data-highlight", "true");
+              }
+              if (isComment) {
+                span.style.fontWeight = "700";
+                span.style.textDecoration = "underline";
+                span.setAttribute("data-comment", "true");
+              }
               outputParent.appendChild(span);
               output = span;
             }
@@ -126,6 +143,18 @@
 
       function compareLabel(node) {
         return Number(node.compare_index || 0) === 0 ? "chatgpt" : "AIME";
+      }
+
+      function canvasX(x) {
+        return x + WORLD_ORIGIN;
+      }
+
+      function canvasY(y) {
+        return y + WORLD_ORIGIN;
+      }
+
+      function logicalToCanvasPoint(point) {
+        return { x: canvasX(point.x), y: canvasY(point.y) };
       }
 
       function normalizeNodes(rawNodes) {
@@ -145,6 +174,7 @@
             crown: false,
             compare_group_id: null,
             compare_index: null,
+            collapsed: false,
             text_html: "中心主题",
             compare_main_html: "",
             compare_sub_html: ""
@@ -171,6 +201,7 @@
             level: Number(node.level || 0),
             manual: Boolean(node.manual),
             crown: Boolean(node.crown),
+            collapsed: Boolean(node.collapsed),
             compare_group_id: node.compare_group_id ? String(node.compare_group_id) : null,
             compare_index: node.compare_index === null || node.compare_index === undefined ? null : Number(node.compare_index),
             images: Array.isArray(node.images)
@@ -258,6 +289,41 @@
 
       function getSiblings(node) {
         return nodes.filter((item) => item.parent_id === node.parent_id);
+      }
+
+      function hiddenNodeIds() {
+        const hidden = new Set();
+        nodes.forEach((node) => {
+          if (!node.collapsed) return;
+          node.children.forEach((childId) => {
+            const child = getNode(childId);
+            if (!child) return;
+            if (child.compare_group_id) {
+              nodes
+                .filter((item) => item.compare_group_id === child.compare_group_id)
+                .forEach((item) => hidden.add(item.id));
+              return;
+            }
+            hidden.add(child.id);
+          });
+        });
+        return hidden;
+      }
+
+      function visibleNodeList() {
+        const hidden = hiddenNodeIds();
+        return nodes.filter((node) => !hidden.has(node.id));
+      }
+
+      function hiddenChildCount(node) {
+        if (!node.collapsed) return 0;
+        const foldedUnits = new Set();
+        node.children.forEach((childId) => {
+          const child = getNode(childId);
+          if (!child) return;
+          foldedUnits.add(child.compare_group_id ? `compare:${child.compare_group_id}` : child.id);
+        });
+        return foldedUnits.size;
       }
 
       function selectNode(id) {
@@ -424,6 +490,7 @@
       }
 
       function childNodes(node) {
+        if (node.collapsed) return [];
         return node.children.map(getNode).filter(Boolean);
       }
 
@@ -487,7 +554,7 @@
       }
 
       function avoidOverlaps(forceAll) {
-        const ordered = [...nodes].sort((a, b) => {
+        const ordered = visibleNodeList().sort((a, b) => {
           if (a.level !== b.level) return a.level - b.level;
           if (a.y !== b.y) return a.y - b.y;
           return a.x - b.x;
@@ -531,8 +598,16 @@
 
       function updateCanvasBounds() {
         syncCompareGroups();
-        const maxX = Math.max(viewport.clientWidth, ...nodes.map((node) => node.x + node.width + CANVAS_PADDING));
-        const maxY = Math.max(viewport.clientHeight, ...nodes.map((node) => node.y + node.height + CANVAS_PADDING));
+        const maxX = Math.max(
+          MIN_WORLD_SIZE,
+          ...nodes.map((node) => canvasX(node.x + node.width + CANVAS_PADDING)),
+          viewport.clientWidth / canvasScale + WORLD_ORIGIN
+        );
+        const maxY = Math.max(
+          MIN_WORLD_SIZE,
+          ...nodes.map((node) => canvasY(node.y + node.height + CANVAS_PADDING)),
+          viewport.clientHeight / canvasScale + WORLD_ORIGIN
+        );
         const width = Math.ceil(maxX);
         const height = Math.ceil(maxY);
         canvasContent.style.width = `${width}px`;
@@ -546,9 +621,18 @@
         annotationLayer.setAttribute("height", String(height));
         nodesLayer.style.width = `${width}px`;
         nodesLayer.style.height = `${height}px`;
+        if (!didCenterCanvas) {
+          viewport.scrollLeft = WORLD_ORIGIN * canvasScale;
+          viewport.scrollTop = WORLD_ORIGIN * canvasScale;
+          didCenterCanvas = true;
+        }
       }
 
       function createChild(parent) {
+        if (parent.collapsed) {
+          showStatus("当前节点已折叠，请先展示后续节点");
+          return;
+        }
         pushUndoSnapshot();
         exitEdit();
         const child = {
@@ -566,6 +650,7 @@
           crown: false,
           compare_group_id: null,
           compare_index: null,
+          collapsed: false,
           text_html: "新主题",
           compare_main_html: "",
           compare_sub_html: ""
@@ -602,6 +687,7 @@
           crown: false,
           compare_group_id: null,
           compare_index: null,
+          collapsed: false,
           text_html: "新主题",
           compare_main_html: "",
           compare_sub_html: ""
@@ -621,8 +707,8 @@
         const node = {
           id: uuid(),
           text: "新主题",
-          x: Math.max(8, x),
-          y: Math.max(8, y),
+          x,
+          y,
           width: 120,
           height: 42,
           parent_id: null,
@@ -633,6 +719,7 @@
           crown: false,
           compare_group_id: null,
           compare_index: null,
+          collapsed: false,
           text_html: "新主题",
           compare_main_html: "",
           compare_sub_html: ""
@@ -685,6 +772,7 @@
           crown: false,
           compare_group_id: groupId,
           compare_index: 1,
+          collapsed: false,
           text_html: sourceHtml,
           compare_main_html: "",
           compare_sub_html: sourceHtml
@@ -712,8 +800,10 @@
 
       function buildEdges() {
         const nodeIds = new Set(nodes.map((node) => node.id));
+        const hidden = hiddenNodeIds();
         const autoEdges = nodes
           .filter((node) => node.parent_id && nodeIds.has(node.parent_id))
+          .filter((node) => !hidden.has(node.id) && !hidden.has(node.parent_id))
           .map((node) => ({
             id: `edge-${node.parent_id}-${node.id}`,
             source: node.parent_id,
@@ -723,7 +813,11 @@
             type: "auto"
           }));
         const validManualEdges = manualEdges.filter((edge) => {
-          return nodeIds.has(edge.source) && nodeIds.has(edge.target) && edge.source !== edge.target;
+          return nodeIds.has(edge.source) &&
+            nodeIds.has(edge.target) &&
+            edge.source !== edge.target &&
+            !hidden.has(edge.source) &&
+            !hidden.has(edge.target);
         });
         return [...autoEdges, ...validManualEdges];
       }
@@ -743,6 +837,7 @@
             level: node.level,
             manual: Boolean(node.manual),
             crown: Boolean(node.crown),
+            collapsed: Boolean(node.collapsed),
             compare_group_id: node.compare_group_id,
             compare_index: node.compare_index,
             text_html: sanitizeHtml(node.text_html || textToHtml(node.text)),
@@ -866,6 +961,8 @@
         contextNodeId = nodeId;
         const node = getNode(nodeId);
         contextMenuAction.textContent = node?.crown ? "移除王冠" : "添加王冠";
+        contextMenuCollapseAction.textContent = node?.collapsed ? "展示后续节点" : "不展示后续节点";
+        contextMenuCollapseAction.disabled = !node?.children?.length;
         contextMenu.style.left = `${event.clientX}px`;
         contextMenu.style.top = `${event.clientY}px`;
         contextMenu.classList.add("open");
@@ -883,6 +980,25 @@
         measureNodeText(node);
         layoutTree({ forceAll: false });
         closeContextMenu();
+        render();
+        scheduleSave();
+      }
+
+      function toggleContextCollapse() {
+        const node = getNode(contextNodeId);
+        if (!node) {
+          closeContextMenu();
+          return;
+        }
+        if (!node.children.length && !node.collapsed) {
+          showStatus("当前节点没有后续节点");
+          closeContextMenu();
+          return;
+        }
+        pushUndoSnapshot();
+        node.collapsed = !node.collapsed;
+        closeContextMenu();
+        layoutTree({ forceAll: false });
         render();
         scheduleSave();
       }
@@ -1010,11 +1126,13 @@
         const distance = Math.max(48, Math.min(180, Math.hypot(targetPoint.x - sourcePoint.x, targetPoint.y - sourcePoint.y) / 2));
         const sourceControl = controlOffset(sourceAnchor, distance);
         const targetControl = controlOffset(targetAnchor, distance);
+        const sourceCanvasPoint = logicalToCanvasPoint(sourcePoint);
+        const targetCanvasPoint = logicalToCanvasPoint(targetPoint);
         return [
-          `M ${sourcePoint.x} ${sourcePoint.y}`,
-          `C ${sourcePoint.x + sourceControl.x} ${sourcePoint.y + sourceControl.y},`,
-          `${targetPoint.x + targetControl.x} ${targetPoint.y + targetControl.y},`,
-          `${targetPoint.x} ${targetPoint.y}`
+          `M ${sourceCanvasPoint.x} ${sourceCanvasPoint.y}`,
+          `C ${sourceCanvasPoint.x + sourceControl.x} ${sourceCanvasPoint.y + sourceControl.y},`,
+          `${targetCanvasPoint.x + targetControl.x} ${targetCanvasPoint.y + targetControl.y},`,
+          `${targetCanvasPoint.x} ${targetCanvasPoint.y}`
         ].join(" ");
       }
 
@@ -1067,7 +1185,14 @@
       function strokePath(points) {
         if (!points.length) return "";
         const [first, ...rest] = points;
-        return [`M ${first.x} ${first.y}`, ...rest.map((point) => `L ${point.x} ${point.y}`)].join(" ");
+        const firstCanvasPoint = logicalToCanvasPoint(first);
+        return [
+          `M ${firstCanvasPoint.x} ${firstCanvasPoint.y}`,
+          ...rest.map((point) => {
+            const canvasPoint = logicalToCanvasPoint(point);
+            return `L ${canvasPoint.x} ${canvasPoint.y}`;
+          })
+        ].join(" ");
       }
 
       function renderAnnotations() {
@@ -1126,13 +1251,16 @@
 
       function renderNodes() {
         nodesLayer.innerHTML = "";
-        nodeCountEl.textContent = `${nodes.length} 个节点`;
+        const hidden = hiddenNodeIds();
+        const visibleNodes = nodes.filter((node) => !hidden.has(node.id));
+        nodeCountEl.textContent = hidden.size ? `${visibleNodes.length}/${nodes.length} 个节点` : `${nodes.length} 个节点`;
         for (const node of nodes) {
+          if (hidden.has(node.id)) continue;
           const el = document.createElement("div");
-          el.className = `node level-${node.level}${node.compare_group_id ? " compare-node" : ""}${node.id === selectedId ? " selected" : ""}${node.id === editingId ? " editing" : ""}${node.crown ? " crowned" : ""}${hasHighlight(node.id) ? " highlighted" : ""}${node.id === hoverConnectTargetId ? " connect-target" : ""}`;
+          el.className = `node level-${node.level}${node.compare_group_id ? " compare-node" : ""}${node.collapsed ? " collapsed-node" : ""}${node.id === selectedId ? " selected" : ""}${node.id === editingId ? " editing" : ""}${node.crown ? " crowned" : ""}${hasHighlight(node.id) ? " highlighted" : ""}${node.id === hoverConnectTargetId ? " connect-target" : ""}`;
           el.dataset.nodeId = node.id;
-          el.style.left = `${node.x}px`;
-          el.style.top = `${node.y}px`;
+          el.style.left = `${canvasX(node.x)}px`;
+          el.style.top = `${canvasY(node.y)}px`;
           el.style.width = `${node.width}px`;
           el.style.minHeight = `${node.height}px`;
           el.tabIndex = 0;
@@ -1196,6 +1324,28 @@
             el.appendChild(imagesEl);
           }
 
+          const foldedCount = hiddenChildCount(node);
+          if (foldedCount) {
+            const foldedEl = document.createElement("button");
+            foldedEl.type = "button";
+            foldedEl.className = "collapsed-badge";
+            foldedEl.textContent = `已折叠 ${foldedCount} 个节点`;
+            foldedEl.addEventListener("pointerdown", (event) => {
+              event.preventDefault();
+              event.stopPropagation();
+            });
+            foldedEl.addEventListener("click", (event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              pushUndoSnapshot();
+              node.collapsed = false;
+              layoutTree({ forceAll: false });
+              render();
+              scheduleSave();
+            });
+            el.appendChild(foldedEl);
+          }
+
           if (node.id === selectedId && editingId !== node.id) {
             for (const anchor of ["top", "right", "bottom", "left"]) {
               const pointEl = document.createElement("button");
@@ -1232,8 +1382,8 @@
       function viewportPoint(event) {
         const rect = viewport.getBoundingClientRect();
         return {
-          x: (event.clientX - rect.left + viewport.scrollLeft) / canvasScale,
-          y: (event.clientY - rect.top + viewport.scrollTop) / canvasScale
+          x: (event.clientX - rect.left + viewport.scrollLeft) / canvasScale - WORLD_ORIGIN,
+          y: (event.clientY - rect.top + viewport.scrollTop) / canvasScale - WORLD_ORIGIN
         };
       }
 
@@ -1243,12 +1393,12 @@
         const targetScale = Math.min(MAX_SCALE, Math.max(MIN_SCALE, nextScale));
         if (Math.abs(targetScale - oldScale) < 0.001) return;
 
-        const focusX = (clientX - rect.left + viewport.scrollLeft) / oldScale;
-        const focusY = (clientY - rect.top + viewport.scrollTop) / oldScale;
+        const focusX = (clientX - rect.left + viewport.scrollLeft) / oldScale - WORLD_ORIGIN;
+        const focusY = (clientY - rect.top + viewport.scrollTop) / oldScale - WORLD_ORIGIN;
         canvasScale = targetScale;
         updateCanvasBounds();
-        viewport.scrollLeft = focusX * canvasScale - (clientX - rect.left);
-        viewport.scrollTop = focusY * canvasScale - (clientY - rect.top);
+        viewport.scrollLeft = (focusX + WORLD_ORIGIN) * canvasScale - (clientX - rect.left);
+        viewport.scrollTop = (focusY + WORLD_ORIGIN) * canvasScale - (clientY - rect.top);
       }
 
       function isBlankCanvasTarget(target) {
@@ -1619,6 +1769,29 @@
         scheduleSave();
       }
 
+      function applyCommentStyle() {
+        const target = editableFromSelection();
+        if (!target) {
+          showStatus("请先选中 texteditor 里的文字");
+          return;
+        }
+        pushUndoSnapshot({ syncText: false });
+        selectedId = target.node.id;
+        selectedEdgeId = null;
+        const selection = window.getSelection();
+        const range = selection.getRangeAt(0);
+        const span = document.createElement("span");
+        span.style.fontWeight = "700";
+        span.style.textDecoration = "underline";
+        span.setAttribute("data-comment", "true");
+        span.appendChild(range.extractContents());
+        range.insertNode(span);
+        selection.removeAllRanges();
+        syncEditableElement(target.node, target.editable, target.field);
+        render();
+        scheduleSave();
+      }
+
       function startDrag(event, nodeId) {
         if (event.button !== 0) return;
         if (editingId === nodeId) return;
@@ -1665,8 +1838,8 @@
         for (const position of dragState.nodePositions) {
           const node = getNode(position.id);
           if (!node) continue;
-          node.x = Math.max(8, position.x + dx);
-          node.y = Math.max(8, position.y + dy);
+          node.x = position.x + dx;
+          node.y = position.y + dy;
           node.manual = true;
         }
         syncCompareGroups();
@@ -1674,8 +1847,8 @@
           const node = getNode(position.id);
           const el = document.querySelector(`[data-node-id="${position.id}"]`);
           if (node && el) {
-            el.style.left = `${node.x}px`;
-            el.style.top = `${node.y}px`;
+            el.style.left = `${canvasX(node.x)}px`;
+            el.style.top = `${canvasY(node.y)}px`;
             el.style.minHeight = `${node.height}px`;
           }
         }
@@ -1825,10 +1998,6 @@
           return;
         }
 
-        if (event.key === " " && editingId) {
-          event.preventDefault();
-          exitEdit();
-        }
       });
 
       autoLayoutButton.addEventListener("click", () => {
@@ -1848,7 +2017,7 @@
         imageUploadInput.click();
       });
 
-      [redHighlighterButton, greenHighlighterButton, eraserButton].forEach((button) => {
+      [redHighlighterButton, greenHighlighterButton, eraserButton, commentButton].forEach((button) => {
         button.addEventListener("mousedown", (event) => {
           event.preventDefault();
         });
@@ -1869,6 +2038,11 @@
         removeTextHighlight();
       });
 
+      commentButton.addEventListener("click", () => {
+        closeContextMenu();
+        applyCommentStyle();
+      });
+
       compareButton.addEventListener("click", () => {
         closeContextMenu();
         createComparePair();
@@ -1884,6 +2058,7 @@
       });
 
       contextMenuAction.addEventListener("click", toggleContextCrown);
+      contextMenuCollapseAction.addEventListener("click", toggleContextCollapse);
 
       document.addEventListener("click", (event) => {
         if (!contextMenu.contains(event.target)) {

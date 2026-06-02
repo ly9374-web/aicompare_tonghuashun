@@ -63,7 +63,7 @@ def inject_page_styles() -> None:
 
         .hero-title {
           margin: 0;
-          color: #0f172a;
+          color: #000000 !important;
           font-size: clamp(2.25rem, 5vw, 4.2rem);
           line-height: 1.05;
           letter-spacing: 0;
@@ -148,7 +148,7 @@ def render_home() -> None:
         """
         <section class="hero-shell">
           <div class="hero-kicker">AI answer mapping workspace</div>
-          <h1 class="hero-title">AI 回答知识导图对比工具</h1>
+          <h1 class="hero-title" style="color: #000000 !important;">AI 回答知识导图对比工具</h1>
           <p class="hero-subtitle">用结构化导图分析两个大模型的回答差异</p>
         </section>
         """,
@@ -172,6 +172,30 @@ def render_home() -> None:
 
 def render_records() -> None:
     inject_page_styles()
+    st.markdown(
+        """
+        <style>
+        .stApp h1,
+        .stApp h2,
+        .stApp h3,
+        .stApp p,
+        .stApp span,
+        .stApp label,
+        .stApp div[data-testid="stMarkdownContainer"],
+        .stApp div[data-testid="stCaptionContainer"],
+        .stApp div[data-testid="stCheckbox"] label,
+        .stApp div[data-testid="stCheckbox"] p {
+          color: #000000 !important;
+        }
+
+        div[data-testid="stHorizontalBlock"]:has(.record-heading)
+          > div:first-child div[data-testid="stButton"] {
+          margin-top: 15px;
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
     left_col, title_col = st.columns([1, 5])
     with left_col:
         if st.button("返回"):

@@ -91,6 +91,7 @@ http://localhost:8501
 | `image-upload-input` | `input[type=file]` | `imageUploadInput` | 隐藏图片上传输入框 |
 | `context-menu` | `div` | `contextMenu` | 右键菜单容器 |
 | `context-menu-action` | `button` | `contextMenuAction` | 添加/移除王冠菜单项 |
+| `context-menu-collapse-action` | `button` | `contextMenuCollapseAction` | 展示/不展示后续节点菜单项 |
 
 ## 右侧工具栏按钮 ID
 
@@ -103,6 +104,7 @@ http://localhost:8501
 | `green-highlighter-button` | `greenHighlighterButton` | 绿色高亮 | 给当前选中文字加绿色荧光高亮 |
 | `brush-size-input` | `brushSizeInput` | 隐藏输入 | 兼容旧脚本变量，不在界面显示 |
 | `eraser-button` | `eraserButton` | 去除高亮 | 去除当前选中文字的荧光高亮 |
+| `comment-button` | `commentButton` | 评语 | 给当前选中文字加粗并添加下划线 |
 | `compare-button` | `compareButton` | 对比 | 将当前节点变成左右并列的对比节点 |
 | `auto-layout-button` | `autoLayoutButton` | 自动整理 | 自动重新排版节点 |
 
@@ -120,6 +122,7 @@ http://localhost:8501
 | `.red-tool` | 红色文字高亮工具图标 |
 | `.green-tool` | 绿色文字高亮工具图标 |
 | `.erase-tool` | 去除文字高亮工具图标 |
+| `.comment-tool` | 评语工具图标 |
 | `.compare-tool` | 对比工具图标 |
 | `.edge-path` | 所有 SVG 连线基础样式 |
 | `.auto-edge` | 自动父子连线 |
@@ -144,8 +147,9 @@ http://localhost:8501
 | `.connect-target` | 动态 class | 拖线时可连接目标高亮 |
 | `.node-crown` | 动态 `div` | 王冠 emoji 容器 |
 | `.node-text` | 动态 `div` | 节点文本编辑区域，`contenteditable` |
+| `.collapsed-badge` | 动态 `button` | 折叠后显示“已折叠 N 个节点”，点击展开 |
 | `.compare-label` | 动态 `div` | 对比节点顶部固定标题：`chatgpt` / `AIME` |
-| `.compare-main-editor` | 动态 `div` | 对比节点中部右对齐可编辑区域 |
+| `.compare-main-editor` | 动态 `div` | 对比节点中部左对齐可编辑区域 |
 | `.compare-sub-editor` | 动态 `div` | 对比节点下部左对齐可编辑区域 |
 | `.node-images` | 动态 `div` | 节点图片容器 |
 | `.node-image` | 动态 `img` | 节点内图片 |
@@ -202,9 +206,10 @@ http://localhost:8501
 | `manual` | 是否被用户手动拖拽过 |
 | `images` | 节点图片数组 |
 | `crown` | 是否显示王冠 |
+| `collapsed` | 是否不展示直接子节点 |
 | `compare_group_id` | 对比组 id；普通节点为 `null` |
 | `compare_index` | 对比组内顺序，左侧通常为 `0`，右侧为 `1` |
-| `compare_main_html` | 对比节点中部右对齐区域 HTML |
+| `compare_main_html` | 对比节点中部左对齐区域 HTML |
 | `compare_sub_html` | 对比节点下部左对齐区域 HTML |
 
 ### Edge

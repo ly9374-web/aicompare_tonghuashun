@@ -4,7 +4,7 @@
       <strong id="map-title"></strong>
       <span id="node-count"></span>
     </div>
-    <div class="toolbar-hint">双击编辑，选中文字可红/绿高亮，Tab 子节点，Enter 同级，Space 确认</div>
+    <div class="toolbar-hint">双击编辑，选中文字可红/绿高亮，Tab 子节点，Enter 同级</div>
     <div id="save-state">已保存</div>
   </div>
 
@@ -37,6 +37,10 @@
       <span class="tool-icon erase-tool">ERS</span>
       <span>去除高亮</span>
     </button>
+    <button id="comment-button" type="button">
+      <span class="tool-icon comment-tool">COM</span>
+      <span>评语</span>
+    </button>
     <button id="compare-button" type="button">
       <span class="tool-icon compare-tool">CMP</span>
       <span>对比</span>
@@ -49,6 +53,7 @@
 
   <div id="context-menu" role="menu">
     <button id="context-menu-action" type="button">添加王冠</button>
+    <button id="context-menu-collapse-action" type="button">不展示后续节点</button>
   </div>
 </div>
 
