@@ -129,13 +129,14 @@ body {
   position: absolute;
   left: 0;
   top: 0;
-  pointer-events: none;
+  pointer-events: auto;
 }
 
 #nodes-layer {
   position: absolute;
   left: 0;
   top: 0;
+  pointer-events: none;
 }
 
 #annotation-layer {
@@ -272,6 +273,7 @@ body {
   word-break: break-word;
   user-select: none;
   cursor: grab;
+  pointer-events: auto;
   backdrop-filter: blur(8px);
   -webkit-backdrop-filter: blur(8px);
 }
@@ -505,6 +507,13 @@ body {
   fill: none;
   stroke: #8aa0bd;
   stroke-width: 2;
+  pointer-events: none;
+}
+
+.edge-hit-path {
+  fill: none;
+  stroke: rgba(0, 0, 0, 0);
+  stroke-width: 18;
   cursor: pointer;
   pointer-events: stroke;
 }

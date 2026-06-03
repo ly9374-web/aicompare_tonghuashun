@@ -92,6 +92,51 @@
         return escapeHtml(text || "新主题");
       }
 
+      function appendAutoHighlightedText(text, outputParent) {
+        const source = String(text || "");
+        const markers = [
+          { token: "***", color: GREEN_TEXT_HIGHLIGHT },
+          { token: "xxx", color: RED_TEXT_HIGHLIGHT }
+        ];
+        let cursor = 0;
+
+        while (cursor < source.length) {
+          let next = null;
+          for (const marker of markers) {
+            const start = source.indexOf(marker.token, cursor);
+            if (start === -1) continue;
+            if (!next || start < next.start || (start === next.start && marker.token.length > next.token.length)) {
+              next = { ...marker, start };
+            }
+          }
+
+          if (!next) {
+            outputParent.appendChild(document.createTextNode(source.slice(cursor)));
+            return;
+          }
+
+          const closeStart = source.indexOf(next.token, next.start + next.token.length);
+          if (closeStart === -1) {
+            outputParent.appendChild(document.createTextNode(source.slice(cursor)));
+            return;
+          }
+
+          if (next.start > cursor) {
+            outputParent.appendChild(document.createTextNode(source.slice(cursor, next.start)));
+          }
+
+          const innerText = source.slice(next.start + next.token.length, closeStart);
+          if (innerText) {
+            const span = document.createElement("span");
+            span.style.backgroundColor = next.color;
+            span.setAttribute("data-highlight", "true");
+            span.appendChild(document.createTextNode(innerText));
+            outputParent.appendChild(span);
+          }
+          cursor = closeStart + next.token.length;
+        }
+      }
+
       function sanitizeHtml(html) {
         const source = document.createElement("div");
         source.innerHTML = String(html || "");
@@ -99,7 +144,7 @@
 
         function copyNode(input, outputParent) {
           if (input.nodeType === Node.TEXT_NODE) {
-            outputParent.appendChild(document.createTextNode(input.textContent || ""));
+            appendAutoHighlightedText(input.textContent || "", outputParent);
             return;
           }
           if (input.nodeType !== Node.ELEMENT_NODE) return;
@@ -352,6 +397,8 @@
       }
 
       function enterEdit(id, field = "text") {
+        const keepScrollLeft = viewport.scrollLeft;
+        const keepScrollTop = viewport.scrollTop;
         selectedId = id;
         editingId = id;
         editingField = field;
@@ -360,13 +407,19 @@
         const textEl = document.querySelector(editableSelector(id, field));
         if (!textEl) return;
         textEl.contentEditable = "true";
-        textEl.focus();
+        textEl.focus({ preventScroll: true });
         const range = document.createRange();
         range.selectNodeContents(textEl);
         range.collapse(false);
         const selection = window.getSelection();
         selection.removeAllRanges();
         selection.addRange(range);
+        viewport.scrollLeft = keepScrollLeft;
+        viewport.scrollTop = keepScrollTop;
+        requestAnimationFrame(() => {
+          viewport.scrollLeft = keepScrollLeft;
+          viewport.scrollTop = keepScrollTop;
+        });
       }
 
       function exitEdit() {
@@ -626,6 +679,39 @@
           viewport.scrollTop = WORLD_ORIGIN * canvasScale;
           didCenterCanvas = true;
         }
+      }
+
+      function fitVisibleNodesToViewport() {
+        const visibleNodes = visibleNodeList();
+        if (!visibleNodes.length) return;
+
+        const margin = 80;
+        const minX = Math.min(...visibleNodes.map((node) => node.x));
+        const minY = Math.min(...visibleNodes.map((node) => node.y));
+        const maxX = Math.max(...visibleNodes.map((node) => node.x + node.width));
+        const maxY = Math.max(...visibleNodes.map((node) => node.y + node.height));
+        const boxWidth = Math.max(1, maxX - minX);
+        const boxHeight = Math.max(1, maxY - minY);
+        const availableWidth = Math.max(1, viewport.clientWidth - margin * 2);
+        const availableHeight = Math.max(1, viewport.clientHeight - margin * 2);
+
+        if (visibleNodes.length === 1) {
+          canvasScale = 1;
+        } else {
+          const widthScale = availableWidth / boxWidth;
+          const heightScale = availableHeight / boxHeight;
+          let nextScale = Math.min(widthScale, heightScale, MAX_SCALE);
+          if (nextScale < MIN_SCALE) {
+            nextScale = widthScale >= MIN_SCALE ? Math.min(widthScale, MAX_SCALE) : MIN_SCALE;
+          }
+          canvasScale = Math.min(MAX_SCALE, Math.max(MIN_SCALE, nextScale));
+        }
+
+        updateCanvasBounds();
+        const centerX = (minX + maxX) / 2;
+        const centerY = (minY + maxY) / 2;
+        viewport.scrollLeft = (centerX + WORLD_ORIGIN) * canvasScale - viewport.clientWidth / 2;
+        viewport.scrollTop = (centerY + WORLD_ORIGIN) * canvasScale - viewport.clientHeight / 2;
       }
 
       function createChild(parent) {
@@ -996,10 +1082,14 @@
           return;
         }
         pushUndoSnapshot();
-        node.collapsed = !node.collapsed;
+        const shouldFitAfterCollapse = !node.collapsed;
+        node.collapsed = shouldFitAfterCollapse;
         closeContextMenu();
         layoutTree({ forceAll: false });
         render();
+        if (shouldFitAfterCollapse) {
+          fitVisibleNodesToViewport();
+        }
         scheduleSave();
       }
 
@@ -1154,18 +1244,29 @@
           const pathData = edgePath(edge);
           if (!pathData) continue;
 
+          const hitPath = document.createElementNS("http://www.w3.org/2000/svg", "path");
+          hitPath.setAttribute("d", pathData);
+          hitPath.setAttribute("class", "edge-hit-path");
+          hitPath.dataset.edgeId = edge.id;
+          hitPath.addEventListener("pointerdown", (event) => {
+            event.preventDefault();
+            event.stopPropagation();
+          });
+          hitPath.addEventListener("click", (event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            if (selectedEdgeId === edge.id) {
+              deleteEdge(edge.id);
+              return;
+            }
+            selectEdge(edge.id);
+          });
+          edgesLayer.appendChild(hitPath);
+
           const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
           path.setAttribute("d", pathData);
           path.setAttribute("class", `edge-path ${edge.type === "manual" ? "manual-edge" : "auto-edge"}${edge.id === selectedEdgeId ? " selected-edge" : ""}`);
           path.dataset.edgeId = edge.id;
-          path.addEventListener("pointerdown", (event) => {
-            event.stopPropagation();
-            selectEdge(edge.id);
-          });
-          path.addEventListener("click", (event) => {
-            event.stopPropagation();
-            selectEdge(edge.id);
-          });
           edgesLayer.appendChild(path);
         }
 
@@ -2069,6 +2170,68 @@
       window.addEventListener("beforeunload", () => {
         if (saveTimer) saveNow();
       });
+
+      function defaultAnalysisField(node) {
+        return node?.compare_group_id ? "compare_sub" : "text";
+      }
+
+      function editorHtmlForField(node, field) {
+        if (node.compare_group_id && field === "compare_sub") return node.compare_sub_html || "";
+        if (node.compare_group_id && field === "compare_main") return node.compare_main_html || "";
+        return node.text_html || textToHtml(node.text || "新主题");
+      }
+
+      function setEditorHtmlForField(node, field, html) {
+        if (node.compare_group_id && field === "compare_sub") {
+          node.compare_sub_html = html || "新主题";
+        } else if (node.compare_group_id && field === "compare_main") {
+          node.compare_main_html = html;
+        } else {
+          node.text_html = html || "新主题";
+        }
+        node.text = nodeTextFromHtml(node);
+      }
+
+      function getAiAnalysisTarget() {
+        syncEditingText();
+        const node = getNode(contextNodeId || selectedId);
+        if (!node) return null;
+        const field = defaultAnalysisField(node);
+        return {
+          nodeId: node.id,
+          field,
+          text: htmlToText(editorHtmlForField(node, field)),
+          isCompareNode: Boolean(node.compare_group_id)
+        };
+      }
+
+      function replaceEditorContent(nodeId, field, text) {
+        const node = getNode(nodeId);
+        if (!node) return false;
+        syncEditingText();
+        pushUndoSnapshot();
+        editingId = null;
+        editingField = "text";
+        const nextField = node.compare_group_id ? "compare_sub" : field;
+        const nextHtml = sanitizeHtml(textToHtml(text || "新主题"));
+        setEditorHtmlForField(node, nextField, nextHtml);
+        measureNodeText(node);
+        layoutTree({ forceAll: false });
+        selectedId = node.id;
+        selectedEdgeId = null;
+        closeContextMenu();
+        render();
+        scheduleSave();
+        return true;
+      }
+
+      window.KnowledgeMapCanvas = {
+        apiUrl,
+        closeContextMenu,
+        getAiAnalysisTarget,
+        replaceEditorContent,
+        showStatus
+      };
 
       rebuildChildren();
       measureAllNodes();
