@@ -27,6 +27,9 @@
       const LEVEL_GAP = 190;
       const SIBLING_GAP = 30;
       const BRANCH_GAP = 56;
+      const COMPACT_LEVEL_GAP = 96;
+      const COMPACT_BRANCH_GAP = 30;
+      const COMPACT_SIBLING_GAP = 22;
       const CANVAS_PADDING = 24;
       const CROWN_SPACE = 24;
       const MIN_SCALE = 0.35;
@@ -537,6 +540,26 @@
         }
       }
 
+      function primaryCompareNode(node) {
+        if (!node.compare_group_id) return node;
+        const groupNodes = compareGroups().get(node.compare_group_id) || [];
+        return orderedCompareNodes(groupNodes)[0] || node;
+      }
+
+      function isCompareFollower(node) {
+        return Boolean(node.compare_group_id && primaryCompareNode(node).id !== node.id);
+      }
+
+      function layoutUnitWidth(node) {
+        if (!node.compare_group_id) return node.width;
+        const groupNodes = compareGroups().get(node.compare_group_id) || [];
+        const ordered = orderedCompareNodes(groupNodes);
+        if (ordered[0]?.id !== node.id) return 0;
+        return ordered.reduce((total, item, index) => {
+          return total + item.width + (index === 0 ? 0 : COMPARE_GAP);
+        }, 0);
+      }
+
       function getRootNode() {
         const nodeIds = new Set(nodes.map((node) => node.id));
         return nodes.find((node) => !node.parent_id || !nodeIds.has(node.parent_id)) || nodes[0];
@@ -562,35 +585,51 @@
         }
 
         const childHeight = children.reduce((total, child, index) => {
-          return total + computeSubtreeHeight(child, cache) + (index === 0 ? 0 : BRANCH_GAP);
+          return total + computeSubtreeHeight(child, cache) + (index === 0 ? 0 : COMPACT_BRANCH_GAP);
         }, 0);
         const height = Math.max(node.height, childHeight);
         cache.set(node.id, height);
         return height;
       }
 
-      function assignSubtree(node, x, topY, cache, forceAll) {
+      function collectLevelWidths(node, levelWidths) {
+        if (!isCompareFollower(node)) {
+          levelWidths[node.level] = Math.max(levelWidths[node.level] || MIN_NODE_WIDTH, layoutUnitWidth(node));
+        }
+        for (const child of childNodes(node)) {
+          collectLevelWidths(child, levelWidths);
+        }
+      }
+
+      function levelPositions(rootX, levelWidths) {
+        const positions = [rootX];
+        for (let level = 1; level < levelWidths.length; level += 1) {
+          const previousWidth = levelWidths[level - 1] || MIN_NODE_WIDTH;
+          positions[level] = positions[level - 1] + previousWidth + COMPACT_LEVEL_GAP;
+        }
+        return positions;
+      }
+
+      function assignSubtree(node, topY, cache, forceAll, levelX) {
         const subtreeHeight = cache.get(node.id) || node.height;
         if (forceAll || !node.manual) {
-          node.x = x;
+          node.x = levelX[node.level] ?? node.x;
           node.y = topY + subtreeHeight / 2 - node.height / 2;
         }
-        const anchorX = node.x;
         const anchorCenterY = node.y + node.height / 2;
 
         const children = childNodes(node);
         if (!children.length) return;
 
         const childBlockHeight = children.reduce((total, child, index) => {
-          return total + (cache.get(child.id) || child.height) + (index === 0 ? 0 : BRANCH_GAP);
+          return total + (cache.get(child.id) || child.height) + (index === 0 ? 0 : COMPACT_BRANCH_GAP);
         }, 0);
         let childTop = anchorCenterY - childBlockHeight / 2;
-        const childX = anchorX + MAX_NODE_WIDTH + LEVEL_GAP;
 
         for (const child of children) {
           const childHeight = cache.get(child.id) || child.height;
-          assignSubtree(child, childX, childTop, cache, forceAll);
-          childTop += childHeight + BRANCH_GAP;
+          assignSubtree(child, childTop, cache, forceAll, levelX);
+          childTop += childHeight + COMPACT_BRANCH_GAP;
         }
       }
 
@@ -607,7 +646,7 @@
       }
 
       function avoidOverlaps(forceAll) {
-        const ordered = visibleNodeList().sort((a, b) => {
+        const ordered = visibleNodeList().filter((node) => !isCompareFollower(node)).sort((a, b) => {
           if (a.level !== b.level) return a.level - b.level;
           if (a.y !== b.y) return a.y - b.y;
           return a.x - b.x;
@@ -618,7 +657,7 @@
           if (forceAll || !node.manual) {
             let guard = 0;
             while (placed.some((item) => rectanglesOverlap(node, item)) && guard < 80) {
-              node.y += node.height + SIBLING_GAP;
+              node.y += COMPACT_SIBLING_GAP;
               guard += 1;
             }
           }
@@ -644,7 +683,9 @@
         const viewportHeight = Math.max(620, viewport.clientHeight || 620);
         const rootX = Math.max(160, Math.round((viewport.clientWidth || 1200) * 0.18));
         const topY = Math.max(CANVAS_PADDING, viewportHeight / 2 - treeHeight / 2);
-        assignSubtree(root, rootX, topY, cache, forceAll);
+        const levelWidths = [];
+        collectLevelWidths(root, levelWidths);
+        assignSubtree(root, topY, cache, forceAll, levelPositions(rootX, levelWidths));
         avoidOverlaps(forceAll);
         syncCompareGroups();
       }
