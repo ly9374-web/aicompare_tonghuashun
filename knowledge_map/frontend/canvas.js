@@ -9,6 +9,8 @@
       const saveState = document.getElementById("save-state");
       const titleEl = document.getElementById("map-title");
       const nodeCountEl = document.getElementById("node-count");
+      const layerBackButton = document.getElementById("layer-back-button");
+      const layerTitleEl = document.getElementById("layer-title");
       const autoLayoutButton = document.getElementById("auto-layout-button");
       const uploadImageButton = document.getElementById("upload-image-button");
       const imageUploadInput = document.getElementById("image-upload-input");
@@ -20,6 +22,8 @@
       const compareButton = document.getElementById("compare-button");
       const contextMenu = document.getElementById("context-menu");
       const contextMenuAction = document.getElementById("context-menu-action");
+      const contextMenuMoveUpAction = document.getElementById("context-menu-move-up-action");
+      const contextMenuDeleteAction = document.getElementById("context-menu-delete-action");
       const contextMenuCollapseAction = document.getElementById("context-menu-collapse-action");
 
       const MIN_NODE_WIDTH = 120;
@@ -30,11 +34,17 @@
       const COMPACT_LEVEL_GAP = 96;
       const COMPACT_BRANCH_GAP = 30;
       const COMPACT_SIBLING_GAP = 22;
+      const LAYER_GRID_GAP = 30;
+      const LAYER_LEFT = 80;
+      const LAYER_TOP = 92;
+      const DRAG_THRESHOLD = 6;
+      const RE_PARENT_OVERLAP_RATIO = 0.6;
+      const RE_PARENT_HOLD_MS = 1000;
       const CANVAS_PADDING = 24;
       const CROWN_SPACE = 24;
       const MIN_SCALE = 0.35;
       const MAX_SCALE = 2.4;
-      const COMPARE_GAP = 10;
+      const COMPARE_GAP = 30;
       const MAX_UNDO_STEPS = 80;
       const WORLD_ORIGIN = 50000;
       const MIN_WORLD_SIZE = WORLD_ORIGIN * 2;
@@ -46,11 +56,13 @@
       let annotations = normalizeAnnotations(mapData.annotations || [], nodes);
       let selectedId = nodes[0]?.id || null;
       let selectedEdgeId = null;
+      let currentParentId = null;
       let editingId = null;
       let editingField = "text";
       let saveTimer = null;
       let isDragging = false;
       let dragState = null;
+      let suppressNextClick = false;
       let isPanning = false;
       let panState = null;
       let contextNodeId = null;
@@ -335,6 +347,136 @@
         return nodes.find((node) => node.id === id);
       }
 
+      function validParentId(parentId) {
+        return parentId && getNode(parentId) ? parentId : null;
+      }
+
+      function effectiveParentId(node) {
+        if (node.compare_group_id) {
+          const primary = primaryCompareNode(node);
+          return validParentId(primary.parent_id);
+        }
+        return validParentId(node.parent_id);
+      }
+
+      function currentLayerNodes() {
+        const parentId = validParentId(currentParentId);
+        currentParentId = parentId;
+        return nodes.filter((node) => effectiveParentId(node) === parentId);
+      }
+
+      function currentLayerUnits() {
+        const layerNodes = currentLayerNodes();
+        const layerIds = new Set(layerNodes.map((node) => node.id));
+        const usedGroups = new Set();
+        const units = [];
+
+        for (const node of layerNodes) {
+          if (!node.compare_group_id) {
+            units.push({ nodes: [node], span: 1 });
+            continue;
+          }
+          if (usedGroups.has(node.compare_group_id)) continue;
+          const groupNodes = orderedCompareNodes(compareGroups().get(node.compare_group_id) || [])
+            .filter((item) => layerIds.has(item.id));
+          if (!groupNodes.length) continue;
+          usedGroups.add(node.compare_group_id);
+          units.push({ nodes: groupNodes, span: groupNodes.length });
+        }
+        return units;
+      }
+
+      function currentLayerTitle() {
+        const parent = getNode(currentParentId);
+        if (!parent) return "顶层节点";
+        return nodeTextFromHtml(parent);
+      }
+
+      function nodeGroup(node) {
+        if (!node?.compare_group_id) return node ? [node] : [];
+        return orderedCompareNodes(compareGroups().get(node.compare_group_id) || [node]);
+      }
+
+      function primaryDraggedNode(node) {
+        return primaryCompareNode(node);
+      }
+
+      function setGroupParent(groupNodes, parentId) {
+        const nextParentId = validParentId(parentId);
+        const parent = getNode(nextParentId);
+        for (const node of groupNodes) {
+          node.parent_id = nextParentId;
+          node.level = parent ? parent.level + 1 : 0;
+          node.manual = false;
+        }
+        rebuildChildren();
+      }
+
+      function nodeRect(node) {
+        return {
+          left: node.x,
+          top: node.y,
+          right: node.x + node.width,
+          bottom: node.y + node.height,
+          width: node.width,
+          height: node.height
+        };
+      }
+
+      function overlapRatio(a, b) {
+        const aRect = nodeRect(a);
+        const bRect = nodeRect(b);
+        const width = Math.max(0, Math.min(aRect.right, bRect.right) - Math.max(aRect.left, bRect.left));
+        const height = Math.max(0, Math.min(aRect.bottom, bRect.bottom) - Math.max(aRect.top, bRect.top));
+        const overlap = width * height;
+        const aArea = Math.max(1, aRect.width * aRect.height);
+        const bArea = Math.max(1, bRect.width * bRect.height);
+        return Math.max(overlap / aArea, overlap / bArea);
+      }
+
+      function updateLayerHeader() {
+        if (layerTitleEl) {
+          layerTitleEl.textContent = currentLayerTitle();
+        }
+        if (layerBackButton) {
+          layerBackButton.disabled = !getNode(currentParentId);
+        }
+      }
+
+      function directChildNodes(parentId) {
+        return nodes.filter((node) => effectiveParentId(node) === parentId);
+      }
+
+      function openChildLayer(nodeId) {
+        const node = getNode(nodeId);
+        if (!node) return;
+        syncEditingText();
+        if (!directChildNodes(node.id).length) {
+          showStatus("当前节点没有子节点");
+          return;
+        }
+        currentParentId = node.id;
+        selectedId = null;
+        selectedEdgeId = null;
+        editingId = null;
+        editingField = "text";
+        closeContextMenu();
+        render();
+      }
+
+      function goToParentLayer() {
+        const parent = getNode(currentParentId);
+        if (!parent) return;
+        syncEditingText();
+        currentParentId = validParentId(parent.parent_id);
+        selectedId = parent.id;
+        selectedEdgeId = null;
+        editingId = null;
+        editingField = "text";
+        closeContextMenu();
+        render();
+      }
+
       function getSiblings(node) {
         return nodes.filter((item) => item.parent_id === node.parent_id);
       }
@@ -443,7 +585,6 @@
         }
         editingId = null;
         editingField = "text";
-        layoutTree({ forceAll: false });
         render();
         scheduleSave();
       }
@@ -538,6 +679,32 @@
             nextX += node.width + COMPARE_GAP;
           }
         }
+      }
+
+      function layoutCurrentLayer() {
+        measureAllNodes();
+        const units = currentLayerUnits();
+        if (!units.length) {
+          updateLayerHeader();
+          return;
+        }
+
+        const rowHeight = Math.max(
+          42,
+          ...units.flatMap((unit) => unit.nodes.map((node) => node.height || 42))
+        );
+        let x = LAYER_LEFT;
+        for (const unit of units) {
+          for (const node of unit.nodes) {
+            node.x = x;
+            node.y = LAYER_TOP + (rowHeight - node.height) / 2;
+            node.manual = true;
+            x += node.width + LAYER_GRID_GAP;
+          }
+        }
+
+        syncCompareGroups();
+        updateLayerHeader();
       }
 
       function primaryCompareNode(node) {
@@ -692,14 +859,15 @@
 
       function updateCanvasBounds() {
         syncCompareGroups();
+        const layerNodes = currentLayerNodes();
         const maxX = Math.max(
           MIN_WORLD_SIZE,
-          ...nodes.map((node) => canvasX(node.x + node.width + CANVAS_PADDING)),
+          ...layerNodes.map((node) => canvasX(node.x + node.width + CANVAS_PADDING)),
           viewport.clientWidth / canvasScale + WORLD_ORIGIN
         );
         const maxY = Math.max(
           MIN_WORLD_SIZE,
-          ...nodes.map((node) => canvasY(node.y + node.height + CANVAS_PADDING)),
+          ...layerNodes.map((node) => canvasY(node.y + node.height + CANVAS_PADDING)),
           viewport.clientHeight / canvasScale + WORLD_ORIGIN
         );
         const width = Math.ceil(maxX);
@@ -755,23 +923,41 @@
         viewport.scrollTop = (centerY + WORLD_ORIGIN) * canvasScale - viewport.clientHeight / 2;
       }
 
-      function createChild(parent) {
-        if (parent.collapsed) {
-          showStatus("当前节点已折叠，请先展示后续节点");
+      function focusCurrentLayerStart() {
+        syncEditingText();
+        canvasScale = 1;
+        layoutCurrentLayer();
+        updateCanvasBounds();
+        renderNodes();
+        renderEdges();
+        renderAnnotations();
+
+        const layerNodes = currentLayerNodes();
+        if (!layerNodes.length) {
+          showStatus("当前层级没有节点");
           return;
         }
-        pushUndoSnapshot();
-        exitEdit();
+
+        const minX = Math.min(...layerNodes.map((node) => node.x));
+        const minY = Math.min(...layerNodes.map((node) => node.y));
+        const maxY = Math.max(...layerNodes.map((node) => node.y + node.height));
+        const centerY = (minY + maxY) / 2;
+        viewport.scrollLeft = Math.max(0, canvasX(minX) - 40);
+        viewport.scrollTop = Math.max(0, canvasY(centerY) * canvasScale - viewport.clientHeight / 2);
+      }
+
+      function createNodeWithParent(parentId) {
+        const parent = getNode(parentId);
         const child = {
           id: uuid(),
           text: "新主题",
-          x: parent.x + MAX_NODE_WIDTH + LEVEL_GAP,
-          y: parent.y,
+          x: parent ? parent.x + MAX_NODE_WIDTH + LEVEL_GAP : LAYER_LEFT,
+          y: parent ? parent.y : LAYER_TOP,
           width: 120,
           height: 42,
-          parent_id: parent.id,
+          parent_id: parent ? parent.id : null,
           children: [],
-          level: parent.level + 1,
+          level: parent ? parent.level + 1 : 0,
           manual: false,
           images: [],
           crown: false,
@@ -782,47 +968,31 @@
           compare_main_html: "",
           compare_sub_html: ""
         };
+        return child;
+      }
+
+      function createChild(parent) {
+        if (!parent) return;
+        pushUndoSnapshot();
+        exitEdit();
+        const child = createNodeWithParent(parent.id);
         nodes.push(child);
         rebuildChildren();
-        layoutTree({ forceAll: false });
+        currentParentId = parent.id;
         selectedId = child.id;
         render();
         scheduleSave();
         enterEdit(child.id);
       }
 
-      function createSibling(node) {
+      function createSibling(node = null) {
         pushUndoSnapshot();
         exitEdit();
-        if (!node.parent_id) {
-          createChild(node);
-          return;
-        }
-
-        const sibling = {
-          id: uuid(),
-          text: "新主题",
-          x: node.x,
-          y: node.y + Math.max(68, node.height + 24),
-          width: 120,
-          height: 42,
-          parent_id: node.parent_id,
-          children: [],
-          level: node.level,
-          manual: false,
-          images: [],
-          crown: false,
-          compare_group_id: null,
-          compare_index: null,
-          collapsed: false,
-          text_html: "新主题",
-          compare_main_html: "",
-          compare_sub_html: ""
-        };
+        const sibling = createNodeWithParent(node ? effectiveParentId(node) : currentParentId);
         nodes.push(sibling);
         rebuildChildren();
-        layoutTree({ forceAll: false });
         selectedId = sibling.id;
+        currentParentId = effectiveParentId(sibling);
         render();
         scheduleSave();
         enterEdit(sibling.id);
@@ -853,6 +1023,7 @@
         };
         nodes.push(node);
         rebuildChildren();
+        currentParentId = null;
         selectedId = node.id;
         selectedEdgeId = null;
         render();
@@ -891,7 +1062,7 @@
           y: node.y,
           width: node.width,
           height: node.height,
-          parent_id: null,
+          parent_id: effectiveParentId(node),
           children: [],
           level: node.level,
           manual: true,
@@ -997,6 +1168,7 @@
           payload: serialize(),
           selectedId,
           selectedEdgeId,
+          currentParentId,
           editingId: null
         };
       }
@@ -1020,6 +1192,7 @@
         annotations = normalizeAnnotations(state.payload.annotations || [], nodes);
         selectedId = state.selectedId && getNode(state.selectedId) ? state.selectedId : nodes[0]?.id || null;
         selectedEdgeId = state.selectedEdgeId || null;
+        currentParentId = validParentId(state.currentParentId);
         editingId = null;
         connectionState = null;
         hoverConnectTargetId = null;
@@ -1088,6 +1261,9 @@
         contextNodeId = nodeId;
         const node = getNode(nodeId);
         contextMenuAction.textContent = node?.crown ? "移除王冠" : "添加王冠";
+        if (contextMenuMoveUpAction) {
+          contextMenuMoveUpAction.disabled = !effectiveParentId(node);
+        }
         contextMenuCollapseAction.textContent = node?.collapsed ? "展示后续节点" : "不展示后续节点";
         contextMenuCollapseAction.disabled = !node?.children?.length;
         contextMenu.style.left = `${event.clientX}px`;
@@ -1105,10 +1281,44 @@
         pushUndoSnapshot();
         node.crown = !node.crown;
         measureNodeText(node);
-        layoutTree({ forceAll: false });
         closeContextMenu();
         render();
         scheduleSave();
+      }
+
+      function moveContextNodeUpOneLevel() {
+        const node = getNode(contextNodeId);
+        const parentId = effectiveParentId(node);
+        const parent = getNode(parentId);
+        if (!node || !parent) {
+          showStatus("当前节点已经是顶层节点");
+          closeContextMenu();
+          return;
+        }
+
+        pushUndoSnapshot();
+        const groupNodes = nodeGroup(node);
+        const nextParentId = validParentId(parent.parent_id);
+        setGroupParent(groupNodes, nextParentId);
+        currentParentId = nextParentId;
+        selectedId = primaryCompareNode(node).id;
+        selectedEdgeId = null;
+        editingId = null;
+        editingField = "text";
+        closeContextMenu();
+        render();
+        scheduleSave();
+      }
+
+      function deleteContextNode() {
+        const node = getNode(contextNodeId);
+        if (!node) {
+          closeContextMenu();
+          return;
+        }
+        const nodeId = node.id;
+        closeContextMenu();
+        deleteNode(nodeId);
       }
 
       function toggleContextCollapse() {
@@ -1123,14 +1333,9 @@
           return;
         }
         pushUndoSnapshot();
-        const shouldFitAfterCollapse = !node.collapsed;
-        node.collapsed = shouldFitAfterCollapse;
+        node.collapsed = !node.collapsed;
         closeContextMenu();
-        layoutTree({ forceAll: false });
         render();
-        if (shouldFitAfterCollapse) {
-          fitVisibleNodesToViewport();
-        }
         scheduleSave();
       }
 
@@ -1189,7 +1394,6 @@
           height: size.height
         });
         measureNodeText(node);
-        layoutTree({ forceAll: false });
         render();
         scheduleSave();
         if (editingId === node.id) {
@@ -1281,47 +1485,8 @@
 
       function renderEdges() {
         edgesLayer.innerHTML = "";
-        for (const edge of buildEdges()) {
-          const pathData = edgePath(edge);
-          if (!pathData) continue;
-
-          const hitPath = document.createElementNS("http://www.w3.org/2000/svg", "path");
-          hitPath.setAttribute("d", pathData);
-          hitPath.setAttribute("class", "edge-hit-path");
-          hitPath.dataset.edgeId = edge.id;
-          hitPath.addEventListener("pointerdown", (event) => {
-            event.preventDefault();
-            event.stopPropagation();
-          });
-          hitPath.addEventListener("click", (event) => {
-            event.preventDefault();
-            event.stopPropagation();
-            if (selectedEdgeId === edge.id) {
-              deleteEdge(edge.id);
-              return;
-            }
-            selectEdge(edge.id);
-          });
-          edgesLayer.appendChild(hitPath);
-
-          const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
-          path.setAttribute("d", pathData);
-          path.setAttribute("class", `edge-path ${edge.type === "manual" ? "manual-edge" : "auto-edge"}${edge.id === selectedEdgeId ? " selected-edge" : ""}`);
-          path.dataset.edgeId = edge.id;
-          edgesLayer.appendChild(path);
-        }
-
-        if (connectionState) {
-          const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
-          path.setAttribute("d", edgePathFromPoints(
-            connectionState.start,
-            connectionState.current,
-            connectionState.sourceAnchor,
-            "left"
-          ));
-          path.setAttribute("class", "edge-path temp-edge");
-          edgesLayer.appendChild(path);
-        }
+        connectionState = null;
+        hoverConnectTargetId = null;
       }
 
       function strokePath(points) {
@@ -1384,20 +1549,14 @@
         editable.contentEditable = node.id === editingId && editingField === field ? "true" : "false";
         editable.addEventListener("input", () => handleEditableInput(node, el, editable, field));
         editable.addEventListener("paste", handlePaste);
-        editable.addEventListener("dblclick", (event) => {
-          event.stopPropagation();
-          enterEdit(node.id, field);
-        });
         return editable;
       }
 
       function renderNodes() {
         nodesLayer.innerHTML = "";
-        const hidden = hiddenNodeIds();
-        const visibleNodes = nodes.filter((node) => !hidden.has(node.id));
-        nodeCountEl.textContent = hidden.size ? `${visibleNodes.length}/${nodes.length} 个节点` : `${nodes.length} 个节点`;
-        for (const node of nodes) {
-          if (hidden.has(node.id)) continue;
+        const layerNodes = currentLayerNodes();
+        nodeCountEl.textContent = `${layerNodes.length}/${nodes.length} 个节点`;
+        for (const node of layerNodes) {
           const el = document.createElement("div");
           el.className = `node level-${node.level}${node.compare_group_id ? " compare-node" : ""}${node.collapsed ? " collapsed-node" : ""}${node.id === selectedId ? " selected" : ""}${node.id === editingId ? " editing" : ""}${node.crown ? " crowned" : ""}${hasHighlight(node.id) ? " highlighted" : ""}${node.id === hoverConnectTargetId ? " connect-target" : ""}`;
           el.dataset.nodeId = node.id;
@@ -1481,30 +1640,31 @@
               event.stopPropagation();
               pushUndoSnapshot();
               node.collapsed = false;
-              layoutTree({ forceAll: false });
               render();
               scheduleSave();
             });
             el.appendChild(foldedEl);
           }
 
-          if (node.id === selectedId && editingId !== node.id) {
-            for (const anchor of ["top", "right", "bottom", "left"]) {
-              const pointEl = document.createElement("button");
-              pointEl.type = "button";
-              pointEl.className = `connection-point ${anchor}`;
-              pointEl.dataset.anchor = anchor;
-              pointEl.setAttribute("aria-label", `${anchor} connection point`);
-              pointEl.addEventListener("pointerdown", (event) => startConnection(event, node.id, anchor));
-              el.appendChild(pointEl);
-            }
-          }
-
-          el.addEventListener("pointerdown", (event) => startDrag(event, node.id));
-          el.addEventListener("click", () => selectNode(node.id));
-          el.addEventListener("dblclick", (event) => {
+          el.addEventListener("pointerdown", (event) => {
+            startDrag(event, node.id);
+          });
+          el.addEventListener("click", (event) => {
             event.stopPropagation();
+            if (suppressNextClick) {
+              suppressNextClick = false;
+              return;
+            }
+            if (event.detail >= 2) {
+              openChildLayer(node.id);
+              return;
+            }
             enterEdit(node.id, node.compare_group_id ? "compare_sub" : "text");
+          });
+          el.addEventListener("dblclick", (event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            openChildLayer(node.id);
           });
           el.addEventListener("contextmenu", (event) => {
             openContextMenu(event, node.id);
@@ -1515,6 +1675,7 @@
       }
 
       function render() {
+        layoutCurrentLayer();
         renderNodes();
         updateCanvasBounds();
         renderEdges();
@@ -1686,7 +1847,8 @@
         manualEdges = manualEdges.filter((edge) => edge.source !== nodeId && edge.target !== nodeId);
         annotations = annotations.filter((annotation) => annotation.node_id !== nodeId);
         rebuildChildren();
-        selectedId = nodes[0]?.id || null;
+        currentParentId = validParentId(currentParentId);
+        selectedId = currentLayerNodes()[0]?.id || null;
         selectedEdgeId = null;
         editingId = null;
         render();
@@ -1937,20 +2099,28 @@
       function startDrag(event, nodeId) {
         if (event.button !== 0) return;
         if (editingId === nodeId) return;
-        if (event.target.closest?.("[data-edit-field]")) return;
         const node = getNode(nodeId);
         if (!node) return;
-        pushUndoSnapshot();
-        selectNode(nodeId);
-        isDragging = true;
+        event.preventDefault();
+        event.stopPropagation();
+        if (editingId) {
+          syncEditingText();
+          editingId = null;
+          editingField = "text";
+          scheduleSave();
+        }
+        selectedId = nodeId;
+        selectedEdgeId = null;
         const start = viewportPoint(event);
-        const groupNodes = node.compare_group_id
-          ? nodes.filter((item) => item.compare_group_id === node.compare_group_id)
-          : [node];
+        const groupNodes = nodeGroup(node);
         dragState = {
           nodeId,
+          pointerId: event.pointerId,
           startX: start.x,
           startY: start.y,
+          started: false,
+          reparentTargetId: null,
+          reparentTargetStartedAt: null,
           nodePositions: groupNodes.map((item) => ({
             id: item.id,
             x: item.x,
@@ -1958,6 +2128,37 @@
           }))
         };
         event.currentTarget.setPointerCapture(event.pointerId);
+      }
+
+      function draggedPrimaryNode() {
+        const node = getNode(dragState?.nodeId);
+        return node ? primaryDraggedNode(node) : null;
+      }
+
+      function reparentTargetForDrag() {
+        const source = draggedPrimaryNode();
+        if (!source) return null;
+        const draggedIds = new Set(dragState.nodePositions.map((position) => position.id));
+        return currentLayerNodes()
+          .filter((node) => !draggedIds.has(node.id))
+          .filter((node) => primaryCompareNode(node).id === node.id)
+          .find((node) => overlapRatio(source, node) > RE_PARENT_OVERLAP_RATIO) || null;
+      }
+
+      function updateReparentTarget() {
+        const target = reparentTargetForDrag();
+        const now = Date.now();
+        if (!target) {
+          dragState.reparentTargetId = null;
+          dragState.reparentTargetStartedAt = null;
+          hoverConnectTargetId = null;
+          return;
+        }
+        if (dragState.reparentTargetId !== target.id) {
+          dragState.reparentTargetId = target.id;
+          dragState.reparentTargetStartedAt = now;
+        }
+        hoverConnectTargetId = target.id;
       }
 
       document.addEventListener("pointermove", (event) => {
@@ -1973,10 +2174,16 @@
           updateConnection(event);
           return;
         }
-        if (!isDragging || !dragState) return;
+        if (!dragState) return;
         const current = viewportPoint(event);
         const dx = current.x - dragState.startX;
         const dy = current.y - dragState.startY;
+        if (!dragState.started && Math.hypot(dx, dy) < DRAG_THRESHOLD) return;
+        if (!dragState.started) {
+          pushUndoSnapshot();
+          isDragging = true;
+          dragState.started = true;
+        }
         for (const position of dragState.nodePositions) {
           const node = getNode(position.id);
           if (!node) continue;
@@ -1985,6 +2192,7 @@
           node.manual = true;
         }
         syncCompareGroups();
+        updateReparentTarget();
         for (const position of dragState.nodePositions) {
           const node = getNode(position.id);
           const el = document.querySelector(`[data-node-id="${position.id}"]`);
@@ -1999,9 +2207,35 @@
       });
 
       function finishDrag() {
-        if (!isDragging) return;
+        if (!dragState) return;
+        if (!dragState.started) {
+          dragState = null;
+          isDragging = false;
+          return;
+        }
+        const target = getNode(dragState.reparentTargetId);
+        const heldLongEnough = target &&
+          dragState.reparentTargetStartedAt &&
+          Date.now() - dragState.reparentTargetStartedAt >= RE_PARENT_HOLD_MS;
+        const sourceNode = getNode(dragState.nodeId);
+        const sourceGroup = sourceNode ? nodeGroup(sourceNode) : [];
         isDragging = false;
         dragState = null;
+        suppressNextClick = true;
+        hoverConnectTargetId = null;
+        if (target && heldLongEnough && sourceGroup.length) {
+          const primarySource = primaryCompareNode(sourceNode);
+          setGroupParent(sourceGroup, target.id);
+          currentParentId = target.id;
+          selectedId = primarySource.id;
+          selectedEdgeId = null;
+          editingId = null;
+          editingField = "text";
+          render();
+          scheduleSave();
+          return;
+        }
+        render();
         scheduleSave();
       }
 
@@ -2049,8 +2283,7 @@
         }
         event.preventDefault();
         event.stopPropagation();
-        const point = viewportPoint(event);
-        createFreeNodeAt(point.x - 60, point.y - 21);
+        createSibling(null);
       });
 
       viewport.addEventListener("scroll", closeContextMenu);
@@ -2126,10 +2359,13 @@
         }
 
         const node = getNode(selectedId);
-        if (!node) return;
 
         if (event.key === "Tab") {
           event.preventDefault();
+          if (!node) {
+            showStatus("请先选择一个节点");
+            return;
+          }
           createChild(node);
           return;
         }
@@ -2142,12 +2378,13 @@
 
       });
 
+      layerBackButton?.addEventListener("click", () => {
+        goToParentLayer();
+      });
+
       autoLayoutButton.addEventListener("click", () => {
-        pushUndoSnapshot();
-        exitEdit();
-        layoutTree({ forceAll: true });
-        render();
-        scheduleSave();
+        closeContextMenu();
+        focusCurrentLayerStart();
       });
 
       uploadImageButton.addEventListener("click", () => {
@@ -2200,6 +2437,8 @@
       });
 
       contextMenuAction.addEventListener("click", toggleContextCrown);
+      contextMenuMoveUpAction?.addEventListener("click", moveContextNodeUpOneLevel);
+      contextMenuDeleteAction?.addEventListener("click", deleteContextNode);
       contextMenuCollapseAction.addEventListener("click", toggleContextCollapse);
 
       document.addEventListener("click", (event) => {
@@ -2257,7 +2496,6 @@
         const nextHtml = sanitizeHtml(textToHtml(text || "新主题"));
         setEditorHtmlForField(node, nextField, nextHtml);
         measureNodeText(node);
-        layoutTree({ forceAll: false });
         selectedId = node.id;
         selectedEdgeId = null;
         closeContextMenu();

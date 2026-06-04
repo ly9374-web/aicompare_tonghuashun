@@ -112,6 +112,56 @@ body {
   cursor: grabbing;
 }
 
+.layer-nav {
+  position: sticky;
+  top: 14px;
+  left: 14px;
+  z-index: 30;
+  width: fit-content;
+  max-width: min(560px, calc(100% - 160px));
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  border: 1px solid rgba(148, 163, 184, 0.30);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.82);
+  color: #0f172a;
+  box-shadow: 0 14px 32px rgba(15, 23, 42, 0.12);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+}
+
+#layer-back-button {
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: 1px solid rgba(37, 99, 235, 0.22);
+  border-radius: 8px;
+  background: rgba(239, 246, 255, 0.94);
+  color: #1d4ed8;
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+#layer-back-button:disabled {
+  border-color: rgba(148, 163, 184, 0.22);
+  background: rgba(241, 245, 249, 0.78);
+  color: #94a3b8;
+  cursor: not-allowed;
+}
+
+#layer-title {
+  min-width: 0;
+  max-width: 480px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 14px;
+  letter-spacing: 0;
+}
+
 #canvas-world {
   position: relative;
   min-width: 100%;

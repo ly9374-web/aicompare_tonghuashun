@@ -4,11 +4,15 @@
       <strong id="map-title"></strong>
       <span id="node-count"></span>
     </div>
-    <div class="toolbar-hint">双击编辑，选中文字可红/绿高亮，Tab 子节点，Enter 同级</div>
+    <div class="toolbar-hint">单击编辑，双击进入子节点，Tab 子节点，Enter 同级</div>
     <div id="save-state">已保存</div>
   </div>
 
   <div id="viewport">
+    <div class="layer-nav" aria-label="层级导航">
+      <button id="layer-back-button" type="button" aria-label="返回父节点">←</button>
+      <strong id="layer-title">顶层节点</strong>
+    </div>
     <div id="canvas-world">
       <div id="canvas-content">
         <svg id="edges-layer"></svg>
@@ -46,14 +50,16 @@
       <span>对比</span>
     </button>
     <button id="auto-layout-button" type="button">
-      <span class="tool-icon">LAY</span>
-      <span>自动整理</span>
+      <span class="tool-icon">LOC</span>
+      <span>找到节点</span>
     </button>
   </div>
 
   <div id="context-menu" role="menu">
     <button id="context-menu-action" type="button">添加王冠</button>
     __AI_ANALYSIS_MENU_BUTTON__
+    <button id="context-menu-move-up-action" type="button">移到上一级</button>
+    <button id="context-menu-delete-action" type="button">删除节点</button>
     <button id="context-menu-collapse-action" type="button">不展示后续节点</button>
   </div>
 </div>
