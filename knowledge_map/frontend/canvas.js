@@ -461,7 +461,7 @@
         editingId = null;
         editingField = "text";
         closeContextMenu();
-        render();
+        renderAndFocusCurrentLayer();
       }
 
       function goToParentLayer() {
@@ -474,7 +474,7 @@
         editingId = null;
         editingField = "text";
         closeContextMenu();
-        render();
+        renderAndFocusCurrentLayer();
       }
 
       function getSiblings(node) {
@@ -975,6 +975,11 @@
         viewport.scrollTop = Math.max(0, canvasY(centerY) * canvasScale - viewport.clientHeight / 2);
       }
 
+      function renderAndFocusCurrentLayer() {
+        render();
+        focusCurrentLayerStart();
+      }
+
       function createNodeWithParent(parentId) {
         const parent = getNode(parentId);
         const child = {
@@ -1009,7 +1014,7 @@
         rebuildChildren();
         currentParentId = parent.id;
         selectedId = child.id;
-        render();
+        renderAndFocusCurrentLayer();
         scheduleSave();
         enterEdit(child.id);
       }
@@ -1335,7 +1340,7 @@
         editingId = null;
         editingField = "text";
         closeContextMenu();
-        render();
+        renderAndFocusCurrentLayer();
         scheduleSave();
       }
 
@@ -2265,7 +2270,7 @@
           selectedEdgeId = null;
           editingId = null;
           editingField = "text";
-          render();
+          renderAndFocusCurrentLayer();
           scheduleSave();
           return;
         }
@@ -2484,67 +2489,6 @@
       window.addEventListener("beforeunload", () => {
         if (saveTimer) saveNow();
       });
-
-      function defaultAnalysisField(node) {
-        return node?.compare_group_id ? "compare_sub" : "text";
-      }
-
-      function editorHtmlForField(node, field) {
-        if (node.compare_group_id && field === "compare_sub") return node.compare_sub_html || "";
-        if (node.compare_group_id && field === "compare_main") return node.compare_main_html || "";
-        return node.text_html || textToHtml(node.text || "新主题");
-      }
-
-      function setEditorHtmlForField(node, field, html) {
-        if (node.compare_group_id && field === "compare_sub") {
-          node.compare_sub_html = html || "新主题";
-        } else if (node.compare_group_id && field === "compare_main") {
-          node.compare_main_html = html;
-        } else {
-          node.text_html = html || "新主题";
-        }
-        node.text = nodeTextFromHtml(node);
-      }
-
-      function getAiAnalysisTarget() {
-        syncEditingText();
-        const node = getNode(contextNodeId || selectedId);
-        if (!node) return null;
-        const field = defaultAnalysisField(node);
-        return {
-          nodeId: node.id,
-          field,
-          text: htmlToText(editorHtmlForField(node, field)),
-          isCompareNode: Boolean(node.compare_group_id)
-        };
-      }
-
-      function replaceEditorContent(nodeId, field, text) {
-        const node = getNode(nodeId);
-        if (!node) return false;
-        syncEditingText();
-        pushUndoSnapshot();
-        editingId = null;
-        editingField = "text";
-        const nextField = node.compare_group_id ? "compare_sub" : field;
-        const nextHtml = sanitizeHtml(textToHtml(text || "新主题"));
-        setEditorHtmlForField(node, nextField, nextHtml);
-        measureNodeText(node);
-        selectedId = node.id;
-        selectedEdgeId = null;
-        closeContextMenu();
-        render();
-        scheduleSave();
-        return true;
-      }
-
-      window.KnowledgeMapCanvas = {
-        apiUrl,
-        closeContextMenu,
-        getAiAnalysisTarget,
-        replaceEditorContent,
-        showStatus
-      };
 
       rebuildChildren();
       measureAllNodes();
