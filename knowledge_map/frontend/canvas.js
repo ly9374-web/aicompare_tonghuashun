@@ -44,7 +44,7 @@
       const CROWN_SPACE = 24;
       const MIN_SCALE = 0.35;
       const MAX_SCALE = 2.4;
-      const COMPARE_GAP = 30;
+      const COMPARE_GAP = 10;
       const MAX_UNDO_STEPS = 80;
       const WORLD_ORIGIN = 50000;
       const MIN_WORLD_SIZE = WORLD_ORIGIN * 2;
@@ -541,7 +541,37 @@
         return htmlToText(node.text_html || node.text) || "新主题";
       }
 
-      function enterEdit(id, field = "text") {
+      function caretRangeFromPointInEditable(editable, clientX, clientY) {
+        if (!Number.isFinite(clientX) || !Number.isFinite(clientY)) return null;
+
+        let range = null;
+        if (document.caretPositionFromPoint) {
+          const position = document.caretPositionFromPoint(clientX, clientY);
+          if (position) {
+            range = document.createRange();
+            range.setStart(position.offsetNode, position.offset);
+            range.collapse(true);
+          }
+        } else if (document.caretRangeFromPoint) {
+          range = document.caretRangeFromPoint(clientX, clientY);
+        }
+
+        if (!range) return null;
+        const container = range.startContainer.nodeType === Node.ELEMENT_NODE
+          ? range.startContainer
+          : range.startContainer.parentElement;
+        if (!container || !editable.contains(container)) return null;
+        return range;
+      }
+
+      function endOfEditableRange(editable) {
+        const range = document.createRange();
+        range.selectNodeContents(editable);
+        range.collapse(false);
+        return range;
+      }
+
+      function enterEdit(id, field = "text", options = {}) {
         const keepScrollLeft = viewport.scrollLeft;
         const keepScrollTop = viewport.scrollTop;
         selectedId = id;
@@ -553,9 +583,8 @@
         if (!textEl) return;
         textEl.contentEditable = "true";
         textEl.focus({ preventScroll: true });
-        const range = document.createRange();
-        range.selectNodeContents(textEl);
-        range.collapse(false);
+        const range = caretRangeFromPointInEditable(textEl, options.clientX, options.clientY) ||
+          endOfEditableRange(textEl);
         const selection = window.getSelection();
         selection.removeAllRanges();
         selection.addRange(range);
@@ -1659,7 +1688,12 @@
               openChildLayer(node.id);
               return;
             }
-            enterEdit(node.id, node.compare_group_id ? "compare_sub" : "text");
+            const clickedEditable = event.target.closest?.("[data-edit-field]");
+            const field = clickedEditable?.dataset.editField || (node.compare_group_id ? "compare_sub" : "text");
+            if (editingId === node.id && editingField === field && clickedEditable) {
+              return;
+            }
+            enterEdit(node.id, field, { clientX: event.clientX, clientY: event.clientY });
           });
           el.addEventListener("dblclick", (event) => {
             event.preventDefault();
